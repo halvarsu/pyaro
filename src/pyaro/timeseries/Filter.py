@@ -21,6 +21,7 @@ from .Station import Station
 
 from ..mathutils import haversine
 
+from pyproj import CRS, Transformer
 
 try:
     # Optional dependencies required for relative altitude filter.
@@ -459,11 +460,11 @@ class BoundingBoxFilter(StationReductionFilter):
     def name(self):
         return "bounding_boxes"
 
-    def has_location(self, latitude, longitude):
+    def has_location(self, y, x):
         """Test if the locations coordinates are part of this filter.
 
-        :param latitude: latitude coordinate in degree_north [-90, 90]
-        :param longitude: longitude coordinate in degree_east [-180, 180]
+        :param x: class specific x-coordinate. This class uses longitude coordinate in degree_east [-180, 180]
+        :param y: class specific y-coordinate. This class uses latitude coordinate in degree_north [-90, 90]
         """
         if len(self._include) == 0:
             inside_include = True
@@ -471,8 +472,8 @@ class BoundingBoxFilter(StationReductionFilter):
             inside_include = False
             for n, e, s, w in self._include:
                 if not inside_include:  # one inside test is enough
-                    if s <= latitude <= n:
-                        if w <= longitude <= e:
+                    if s <= x <= n:
+                        if w <= y <= e:
                             inside_include = True
 
         if not inside_include:
@@ -483,8 +484,8 @@ class BoundingBoxFilter(StationReductionFilter):
             if (
                 outside_exclude
             ):  # if known to be inside of any other exclude BB, no more tests
-                if s <= latitude <= n:
-                    if w <= longitude <= e:
+                if s <= x <= n:
+                    if w <= y <= e:
                         outside_exclude = False
 
         return inside_include & outside_exclude
@@ -495,6 +496,50 @@ class BoundingBoxFilter(StationReductionFilter):
             for s, v in stations.items()
             if self.has_location(v.latitude, v.longitude)
         }
+
+
+@registered_filter
+class ProjectedBoundingBoxFilter(BoundingBoxFilter):
+    def __init__(
+        self,
+        include: list[tuple[float, float, float, float]] = [],
+        exclude: list[tuple[float, float, float, float]] = [],
+        projection: str = "EPSG:4326",
+    ):
+        """Filters station coordinates by projection coordinates x,y.
+
+        :param include: bounding boxes to include. Each bounding box is a tuple of four float for
+            (NESW),  defaults to [] meaning no restrictions
+        :param exclude: bounding boxes to exclude. Defaults to []
+        :param projection: projection string, defaults to "EPSG:4326" (WGS84)
+        :raises BoundingBoxException: on any errors of the bounding boxes
+        """
+
+        self.transform = None
+
+        self._transformer = Transformer.from_crs("EPSG:4326", projection,
+                                                 always_xy=True)
+        self._include = include
+        self._exclude = exclude
+        return
+
+    def filter_stations(self, stations: dict[str, Station]) -> dict[str, Station]:
+        return {
+            s: v
+            for s, v in stations.items()
+            if self.has_location(*self._transformer.transform(v.longitude, v.latitude))
+        }
+
+    def has_location(self, y, x):
+        """Test if the locations coordinates are part of this filter.
+
+        :param x: class specific x-coordinate. Uses projected x coordinate
+        :param y: class specific y-coordinate. Uses projected y coordinate
+        """
+        return super().has_location(y, x)
+
+    def name(self):
+        return "projected_bounding_boxes"
 
 
 @registered_filter

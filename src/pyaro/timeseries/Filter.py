@@ -21,8 +21,6 @@ from .Station import Station
 
 from ..mathutils import haversine
 
-from pyproj import CRS, Transformer
-
 try:
     # Optional dependencies required for relative altitude filter.
     import xarray as xr
@@ -511,24 +509,56 @@ class ProjectedBoundingBoxFilter(BoundingBoxFilter):
         :param include: bounding boxes to include. Each bounding box is a tuple of four float for
             (NESW),  defaults to [] meaning no restrictions
         :param exclude: bounding boxes to exclude. Defaults to []
-        :param projection: projection string, defaults to "EPSG:4326" (WGS84)
+        :param projection: projection string, defaults to "EPSG:4326" (WGS84).
+            Non-identity projections require the optional pyproj dependency.
         :raises BoundingBoxException: on any errors of the bounding boxes
         """
 
-        self.transform = None
+        for tup in include:
+            self._test_projected_bounding_box(tup)
+        for tup in exclude:
+            self._test_projected_bounding_box(tup)
 
-        self._transformer = Transformer.from_crs("EPSG:4326", projection,
-                                                 always_xy=True)
+        self._projection = projection
+        self._transformer = None
+        if projection != "EPSG:4326":
+            from pyproj import Transformer
+
+            self._transformer = Transformer.from_crs(
+                "EPSG:4326", projection, always_xy=True
+            )
         self._include = include
         self._exclude = exclude
-        return
+
+    @staticmethod
+    def _test_projected_bounding_box(tup):
+        if len(tup) != 4:
+            raise BoundingBoxException(f"({tup}) has not four NESW elements")
+        if not all(math.isfinite(value) for value in tup):
+            raise BoundingBoxException(
+                f"Projected bounding-box coordinates must be finite in {tup}"
+            )
+        if tup[0] < tup[2]:
+            raise BoundingBoxException(f"north={tup[0]} < south={tup[2]} in {tup}")
+        if tup[1] < tup[3]:
+            raise BoundingBoxException(f"east={tup[1]} < west={tup[3]} in {tup}")
+
+    def init_kwargs(self):
+        return {
+            "include": list(self._include),
+            "exclude": list(self._exclude),
+            "projection": self._projection,
+        }
 
     def filter_stations(self, stations: dict[str, Station]) -> dict[str, Station]:
-        return {
-            s: v
-            for s, v in stations.items()
-            if self.has_location(*self._transformer.transform(v.longitude, v.latitude))
-        }
+        filtered = {}
+        for station, value in stations.items():
+            coordinates = (value.longitude, value.latitude)
+            if self._transformer is not None:
+                coordinates = self._transformer.transform(*coordinates)
+            if self.has_location(*coordinates):
+                filtered[station] = value
+        return filtered
 
     def has_location(self, y, x):
         """Test if the locations coordinates are part of this filter.

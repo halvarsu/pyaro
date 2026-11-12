@@ -470,8 +470,8 @@ class BoundingBoxFilter(StationReductionFilter):
             inside_include = False
             for n, e, s, w in self._include:
                 if not inside_include:  # one inside test is enough
-                    if s <= x <= n:
-                        if w <= y <= e:
+                    if s <= y <= n:
+                        if w <= x <= e:
                             inside_include = True
 
         if not inside_include:
@@ -482,8 +482,8 @@ class BoundingBoxFilter(StationReductionFilter):
             if (
                 outside_exclude
             ):  # if known to be inside of any other exclude BB, no more tests
-                if s <= x <= n:
-                    if w <= y <= e:
+                if s <= y <= n:
+                    if w <= x <= e:
                         outside_exclude = False
 
         return inside_include & outside_exclude
@@ -560,7 +560,7 @@ class ProjectedBoundingBoxFilter(BoundingBoxFilter):
                 filtered[station] = value
         return filtered
 
-    def has_location(self, y, x):
+    def has_location(self, x, y):
         """Test if the locations coordinates are part of this filter.
 
         :param x: class specific x-coordinate. Uses projected x coordinate
